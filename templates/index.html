@@ -6,7 +6,9 @@
         <div class='post'>
             <p>{{ post['created'] }}</p>
             <h2>{{ post['title'] }}</h2>
+            {% autoescape false %}
             <p>{{ post['content'] }}</p>
+        {% endautoescape %}
         </div>
     {% endfor %}
 {% endblock %}
