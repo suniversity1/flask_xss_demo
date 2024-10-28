@@ -1,5 +1,6 @@
 import sqlite3
 from flask import Flask, render_template, request, url_for, flash, redirect
+import bleach
 
 app = Flask(__name__)
 
@@ -13,8 +14,8 @@ def get_db_connection():
 @app.route('/create', methods=('GET', 'POST'))
 def create():
     if request.method == 'POST':
-        title = request.form['title']
-        content = request.form['content']
+        title = bleach.clean(request.form['title'])
+        content = bleach.clean(request.form['content'])
         error = None
 
         if not title:
