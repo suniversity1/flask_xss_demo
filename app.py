@@ -1,11 +1,10 @@
 import sqlite3
-import bcrypt
 import bleach
+from werkzeug.security import generate_password_hash, check_password_hash
 import pyotp
 from flask import Flask, request, redirect, url_for, render_template, session, flash
 from datetime import datetime, timedelta
 import os
-
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -15,13 +14,41 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-
-
-@app.route('/login')
+@app.route('/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'POST':
+        email = bleach.clean(request.form['email'])
+        password = bleach.clean(request.form['password'])
+        error = None
+
+        if not email:
+            error = 'Email is required.'
+        elif not password:
+            error = 'Password is required.'
+
+        if error is not None:
+            flash(error)
+        else:
+            conn = get_db_connection()
+            user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            conn.close()
+
+            if user is None:
+                error = 'User not found.'
+            elif not check_password_hash(user['password_hash'], password):
+                error = 'Incorrect password.'
+
+            if error is None:
+                session.clear()
+                session['user_id'] = user['user_id']
+                flash("Login successful!")
+                return redirect(url_for('index'))
+            else:
+                flash(error)
+
     return render_template('login.html')
 
-@app.route('/register')
+@app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         email = bleach.clean(request.form['email'])
@@ -30,7 +57,7 @@ def register():
         error = None
 
         if not email:
-            error = 'email is required.'
+            error = 'Email is required.'
         elif not password:
             error = 'Password is required.'
         elif not confirm_password:
@@ -41,11 +68,20 @@ def register():
         if error is not None:
             flash(error)
         else:
+            hashed_password = generate_password_hash(password)
+
             conn = get_db_connection()
-            conn.execute('INSERT INTO users (email, password_hash) VALUES (?, ?)',
-                         (email, password))
-            conn.commit()
-            conn.close()
+            try:
+                conn.execute('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+                             (email, hashed_password))
+                conn.commit()
+                flash("Registration successful!")
+            except sqlite3.IntegrityError:
+                flash("An account with this email already exists.")
+            finally:
+                conn.close()
+
+            return redirect(url_for('login'))
 
     return render_template('register.html')
 
@@ -77,3 +113,6 @@ def index():
     posts = conn.execute('SELECT * FROM posts').fetchall()
     conn.close()
     return render_template('index.html', posts=posts)
+
+if __name__ == "__main__":
+    app.run(debug=True)
