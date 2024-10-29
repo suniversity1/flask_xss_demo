@@ -5,7 +5,8 @@ CREATE TABLE posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     title TEXT NOT NULL,
-    content TEXT NOT NULL
+    content TEXT NOT NULL,
+    user_id INTEGER NOT NULL FOREIGN KEY REFERENCES users(user_id)
 );
 
 
@@ -13,5 +14,6 @@ CREATE TABLE users (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    totp_secret TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

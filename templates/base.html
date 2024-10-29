@@ -26,11 +26,16 @@
 <body>
     <nav>
         <a href="{{ url_for('index') }}">Home</a>
+     {% if g.user %}
         <a href="{{ url_for('create') }}">Post</a>
-
+     {% endif %}
         <div class="auth-links">
-            <a href="{{ url_for('login') }}">Login</a>
-            <a href="{{ url_for('register') }}">Register</a>
+            {% if g.user %}
+                <a href="{{ url_for('logout') }}">Logout</a>
+            {% else %}
+                <a href="{{ url_for('login') }}">Login</a>
+                <a href="{{ url_for('register') }}">Register</a>
+            {% endif %}
         </div>
     </nav>
     <hr>
