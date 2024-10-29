@@ -2,19 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %} {% endblock %}- Blog</title>
+    <title>{% block title %} {% endblock %} - Blog</title>
     <style>
         .post {
             padding: 10px;
             margin: 5px;
-            background-color: #f3f3f3
+            background-color: #f3f3f3;
         }
 
         nav a {
             color: #d64161;
-            font-size: 3em;
-            margin-left: 50px;
+            font-size: 1.5em;
+            margin-left: 20px;
             text-decoration: none;
+        }
+
+        .auth-links {
+            float: right;
+            margin-right: 50px;
         }
     </style>
 </head>
@@ -22,6 +27,11 @@
     <nav>
         <a href="{{ url_for('index') }}">Home</a>
         <a href="{{ url_for('create') }}">Post</a>
+
+        <div class="auth-links">
+            <a href="{{ url_for('login') }}">Login</a>
+            <a href="{{ url_for('register') }}">Register</a>
+        </div>
     </nav>
     <hr>
     <div class="content">
