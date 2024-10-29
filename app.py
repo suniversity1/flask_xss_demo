@@ -2,7 +2,7 @@ import sqlite3
 import bleach
 from werkzeug.security import generate_password_hash, check_password_hash
 import pyotp
-from flask import Flask, request, redirect, url_for, render_template, session, flash
+from flask import Flask, request, redirect, url_for, render_template, session, flash,  g
 from datetime import datetime, timedelta
 import os
 
@@ -19,12 +19,15 @@ def login():
     if request.method == 'POST':
         email = bleach.clean(request.form['email'])
         password = bleach.clean(request.form['password'])
+        totp_code = bleach.clean(request.form['totp'])
         error = None
 
         if not email:
             error = 'Email is required.'
         elif not password:
             error = 'Password is required.'
+        elif not totp_code:
+            error = 'TOTP code is required.'
 
         if error is not None:
             flash(error)
@@ -37,6 +40,10 @@ def login():
                 error = 'User not found.'
             elif not check_password_hash(user['password_hash'], password):
                 error = 'Incorrect password.'
+            else:
+                totp = pyotp.TOTP(user['totp_secret'])
+                if not totp.verify(totp_code):
+                    error = 'Invalid TOTP code.'
 
             if error is None:
                 session.clear()
@@ -69,21 +76,35 @@ def register():
             flash(error)
         else:
             hashed_password = generate_password_hash(password)
-
+            totp_secret = pyotp.random_base32()
+            totp_uri = pyotp.TOTP(totp_secret).provisioning_uri(email, issuer_name="FlaskBlog")
             conn = get_db_connection()
             try:
-                conn.execute('INSERT INTO users (email, password_hash) VALUES (?, ?)',
-                             (email, hashed_password))
+                conn.execute('INSERT INTO users (email, password_hash, totp_secret) VALUES (?, ?, ?)',
+                             (email, hashed_password, totp_secret))
                 conn.commit()
-                flash("Registration successful!")
+                flash("Registration successful!, Scan the QR code below to setup 2FA")
+                return render_template('register.html', totp_uri=totp_uri)
             except sqlite3.IntegrityError:
                 flash("An account with this email already exists.")
             finally:
                 conn.close()
 
-            return redirect(url_for('login'))
-
     return render_template('register.html')
+
+@app.before_request
+def load_logged_in_user():
+    user_id = session.get('user_id')
+    if user_id is None:
+        g.user = None
+    else:
+        conn = get_db_connection()
+        g.user = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,)).fetchone()
+        conn.close()
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
 
 @app.route('/create', methods=('GET', 'POST'))
 def create():
