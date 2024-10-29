@@ -15,9 +15,7 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-@app.route('/qr_code')
-def qr_code():
-    return render_template('qr_code.html')
+
 
 @app.route('/login')
 def login():
@@ -48,7 +46,6 @@ def register():
                          (email, password))
             conn.commit()
             conn.close()
-            return redirect(url_for('qr_code'))
 
     return render_template('register.html')
 
