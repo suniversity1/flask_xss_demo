@@ -2,13 +2,27 @@ import sqlite3
 import bleach
 from werkzeug.security import generate_password_hash, check_password_hash
 import pyotp
-from flask import Flask, request, redirect, url_for, render_template, session, flash, g
+from flask import Flask, request, redirect, url_for, render_template, session, flash,  g
 from datetime import datetime, timedelta
 import os
+from authlib.integrations.flask_client import OAuth
 import time
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = '!secret'
+app.config.from_object('config')
+
+
+
+CONF_URL = 'https://accounts.google.com/.well-known/openid-configuration'
+oauth = OAuth(app)
+oauth.register(
+    name='google',
+    server_metadata_url=CONF_URL,
+    client_kwargs={
+        'scope': 'openid email profile'
+    }
+)
 
 RATE_LIMIT = 3
 TIMEOUT_DURATION = 60
@@ -36,6 +50,11 @@ def rate_limit():
                 # Reset the attempts after the timeout duration
                 failed_login_attempts[client_ip] = (0, current_time)
 
+
+@app.route('/login_with_google')
+def login_with_google():
+    redirect_uri = url_for('auth', _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -143,9 +162,32 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
+@app.route('/auth')
+def auth():
+    token = oauth.google.authorize_access_token()
+    user_info = token['userinfo']
+    session['user'] = user_info
+
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE email = ?', (user_info['email'],)).fetchone()
+
+    if user is None:
+        conn.execute('INSERT INTO users (email, name) VALUES (?, ?)', (user_info['email'], user_info['name']))
+        conn.commit()
+        user = conn.execute('SELECT * FROM users WHERE email = ?', (user_info['email'],)).fetchone()
+
+
+    session['user_id'] = user['user_id']
+    conn.close()
+
+    return redirect(url_for('index'))
+
 
 @app.route('/create', methods=('GET', 'POST'))
 def create():
+    if g.user is None:
+        return redirect(url_for('login'))
+
     if request.method == 'POST':
         title = bleach.clean(request.form['title'])
         content = bleach.clean(request.form['content'])
@@ -166,7 +208,6 @@ def create():
 
     return render_template('create_post.html')
 
-
 @app.route('/')
 def index():
     conn = get_db_connection()
@@ -174,11 +215,5 @@ def index():
     conn.close()
     return render_template('index.html', posts=posts)
 
-
 if __name__ == "__main__":
     app.run(debug=True)
-
-
-
-
-

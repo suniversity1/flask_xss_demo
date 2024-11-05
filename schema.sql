@@ -11,8 +11,9 @@ CREATE TABLE posts (
 
 CREATE TABLE users (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
     email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,
     totp_secret TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
