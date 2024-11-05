@@ -1,0 +1,7 @@
+bleach~=4.1.0
+pyotp~=2.9.0
+werkzeug~=3.0.3
+flask~=3.0.3
+python-dotenv>=0.19.2
+authlib>=1.0
+requests>=2.27.1
