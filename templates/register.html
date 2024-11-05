@@ -21,6 +21,11 @@
             <button type="submit">Register</button>
         </div>
     </form>
+    <div>
+        <a href="{{ url_for('login_with_google') }}">
+            <button>Register with Google</button>
+        </a>
+    </div>
     {% endif %}
     {% if totp_uri %}
         <p>Scan this QR code with your 2FA app:</p>
