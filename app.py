@@ -2,11 +2,12 @@ import sqlite3
 import bleach
 from werkzeug.security import generate_password_hash, check_password_hash
 import pyotp
-from flask import Flask, request, redirect, url_for, render_template, session, flash,  g
-from datetime import datetime, timedelta
+from flask import Flask, request, redirect, url_for, render_template, session, flash, g
+from datetime import timedelta
 import os
 from authlib.integrations.flask_client import OAuth
 import time
+
 
 app = Flask(__name__)
 app.secret_key = '!secret'
@@ -26,30 +27,31 @@ oauth.register(
 
 RATE_LIMIT = 3
 TIMEOUT_DURATION = 60
-failed_login_attempts = {}
-
 
 def get_db_connection():
     conn = sqlite3.connect('database.db')
     conn.row_factory = sqlite3.Row
     return conn
 
-
 @app.before_request
 def rate_limit():
-    client_ip = request.remote_addr
-    current_time = time.time()
+    if request.endpoint == 'login' and request.method == 'POST':
+        if 'attempts' in session and 'first_attempt_time' in session:
+            attempts = session['attempts']
+            first_attempt_time = session['first_attempt_time']
+            current_time = time.time()
 
-    if client_ip in failed_login_attempts:
-        attempts, first_attempt_time = failed_login_attempts[client_ip]
-        if attempts >= RATE_LIMIT:
-            if current_time - first_attempt_time < TIMEOUT_DURATION:
-                flash('Too many failed login attempts. Please try again later.')
-                return render_template('login.html')
-            else:
-                # Reset the attempts after the timeout duration
-                failed_login_attempts[client_ip] = (0, current_time)
-
+            if attempts >= RATE_LIMIT:
+                if current_time - first_attempt_time < TIMEOUT_DURATION:
+                    remaining_time = int(TIMEOUT_DURATION - (current_time - first_attempt_time))
+                    flash(f'Too many failed login attempts. Please try again after {remaining_time} seconds.')
+                    return render_template('login.html')
+                else:
+                    session['attempts'] = 0
+                    session['first_attempt_time'] = None
+        else:
+            session['attempts'] = 0
+            session['first_attempt_time'] = time.time()
 
 @app.route('/login_with_google')
 def login_with_google():
@@ -72,9 +74,7 @@ def login():
         elif not totp_code:
             error = 'TOTP code is required.'
 
-        if error is not None:
-            flash(error)
-        else:
+        if error is None:
             conn = get_db_connection()
             user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             conn.close()
@@ -92,17 +92,27 @@ def login():
                 session.clear()
                 session['user_id'] = user['user_id']
                 flash("Login successful!")
-                if client_ip in failed_login_attempts:
-                    del failed_login_attempts[client_ip]
+                session.pop('attempts', None)
+                session.pop('first_attempt_time', None)
                 return redirect(url_for('index'))
             else:
-                if client_ip not in failed_login_attempts:
-                    failed_login_attempts[client_ip] = (1, time.time())
+                if 'attempts' not in session:
+                    session['attempts'] = 1
+                    session['first_attempt_time'] = time.time()
                 else:
-                    attempts, first_attempt_time = failed_login_attempts[client_ip]
-                    failed_login_attempts[client_ip] = (attempts + 1, first_attempt_time)
+                    session['attempts'] += 1
+                    if session['attempts'] == RATE_LIMIT:
+                        session['first_attempt_time'] = time.time()
+                if session['attempts'] >= RATE_LIMIT:
+                    remaining_time = int(TIMEOUT_DURATION - (time.time() - session['first_attempt_time']))
+                    flash(f"Too many failed attempts. Please try again after {remaining_time} seconds.")
+                else:
+                    remaining_attempts = RATE_LIMIT - session['attempts']
+                    flash(f"{error}. You have {remaining_attempts} attempt(s) left.")
+        else:
+            flash(error)
 
-                flash(error)
+        return redirect(url_for('login'))
 
     return render_template('login.html')
 
@@ -128,7 +138,7 @@ def register():
             flash(error)
         else:
             hashed_password = generate_password_hash(password)
-            totp_secret = pyotp.random_base32()  # Generate a TOTP secret
+            totp_secret = pyotp.random_base32()
             totp_uri = pyotp.TOTP(totp_secret).provisioning_uri(email, issuer_name="FlaskBlog")
 
             conn = get_db_connection()
@@ -137,14 +147,14 @@ def register():
                              (email, hashed_password, totp_secret))
                 conn.commit()
                 flash("Registration successful! Please scan the QR code below to set up two-factor authentication.")
-                return render_template('register.html', totp_uri=totp_uri)
+                return redirect(url_for('register'))
             except sqlite3.IntegrityError:
                 flash("An account with this email already exists.")
+                return redirect(url_for('register'))
             finally:
                 conn.close()
 
-    return render_template('register.html')
-
+        return render_template('register.html')
 
 @app.before_request
 def load_logged_in_user():
@@ -155,7 +165,6 @@ def load_logged_in_user():
         conn = get_db_connection()
         g.user = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,)).fetchone()
         conn.close()
-
 
 @app.route('/logout')
 def logout():
@@ -200,8 +209,7 @@ def create():
             flash(error)
         else:
             conn = get_db_connection()
-            conn.execute('INSERT INTO posts (title, content) VALUES (?, ?)',
-                         (title, content))
+            conn.execute('INSERT INTO posts (title, content) VALUES (?, ?)', (title, content))
             conn.commit()
             conn.close()
             return redirect(url_for('index'))
