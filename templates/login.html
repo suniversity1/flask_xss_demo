@@ -1,19 +1,8 @@
-
 {% extends 'base.html' %}
 
 {% block title %} Login {% endblock %}
 
 {% block content %}
-    {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            <ul>
-                {% for message in messages %}
-                    <li style="color: darkred;">{{ message }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
-    {% endwith %}
-
     <form action="{{ url_for('login') }}" method="post">
         <div>
             <label for="email">Email:</label>
@@ -22,10 +11,6 @@
         <div>
             <label for="password">Password:</label>
             <input type="password" id="password" name="password" required>
-        </div>
-        <div>
-            <label for="totp">TOTP Code:</label>
-            <input type="text" id="totp" name="totp" required>
         </div>
         <div>
             <button type="submit">Login</button>

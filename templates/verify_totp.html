@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block title %} Verify TOTP {% endblock %}
+
+{% block content %}
+    <h1>Two-Factor Authentication</h1>
+    <p>Enter the code from your authenticator app:</p>
+    <form action="{{ url_for('verify_totp') }}" method="post">
+        <div>
+            <label for="totp">TOTP Code:</label>
+            <input type="text" id="totp" name="totp" required>
+        </div>
+        <div>
+            <button type="submit">Verify</button>
+        </div>
+    </form>
+{% endblock %}

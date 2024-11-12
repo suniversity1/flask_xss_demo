@@ -3,7 +3,6 @@
 {% block title %} Register {% endblock %}
 
 {% block content %}
-    {% if not totp_uri %}
     <form action="{{ url_for('register') }}" method="post">
         <div>
             <label for="email">Email:</label>
@@ -26,9 +25,4 @@
             <button>Register with Google</button>
         </a>
     </div>
-    {% endif %}
-    {% if totp_uri %}
-        <p>Scan this QR code with your 2FA app:</p>
-        <img src="https://api.qrserver.com/v1/create-qr-code/?data={{ totp_uri }}" alt="QR Code">
-    {% endif %}
 {% endblock %}
