@@ -8,10 +8,12 @@ from authlib.integrations.flask_client import OAuth
 from flask import Flask, request, redirect, url_for, render_template, session, flash, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Initialize the Flask app
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 app.config.from_object('config')
 
+# OAuth configuration for Google login
 CONF_URL = 'https://accounts.google.com/.well-known/openid-configuration'
 oauth = OAuth(app)
 oauth.register(
@@ -22,53 +24,77 @@ oauth.register(
     }
 )
 
+# Rate-limiting configuration
 RATE_LIMIT = 3
-TIMEOUT_DURATION = 60
+TIMEOUT_DURATION = 60 # in seconds
 
 
+# Database connection function
 def get_db_connection():
+    """
+    Establishes a connection to the SQLite database.
+    Returns:
+        sqlite3.Connection: A connection object to the database.
+    """
     conn = sqlite3.connect('database.db')
     conn.row_factory = sqlite3.Row
     return conn
 
-
 @app.before_request
 def before_request():
+    """
+    Handles rate-limiting logic and loads the user for each request.
+    Ensures the login route is rate-limited to prevent brute-force attacks.
+    """
     if request.endpoint == 'login' and request.method == 'POST':
         if 'attempts' in session and 'first_attempt_time' in session:
             attempts = session['attempts']
             first_attempt_time = session['first_attempt_time']
             current_time = time.time()
 
+            # If rate limit exceeded within the timeout duration
             if attempts >= RATE_LIMIT:
                 if current_time - first_attempt_time < TIMEOUT_DURATION:
                     remaining_time = int(TIMEOUT_DURATION - (current_time - first_attempt_time))
                     flash(f'Too many failed login attempts. Please try again after {remaining_time} seconds.')
                     return render_template('login.html')
                 else:
+                    # Reset attempts after timeout
                     session['attempts'] = 0
                     session['first_attempt_time'] = None
         else:
             session['attempts'] = 0
             session['first_attempt_time'] = time.time()
 
+    # Load the user if they are logged in
     user_id = session.get('user_id')
-    if user_id is None:
-        g.user = None
-    else:
+    authenticated = session.get('authenticated')
+
+    if user_id and authenticated:
         conn = get_db_connection()
         g.user = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,)).fetchone()
         conn.close()
+    else:
+        g.user = None
 
-
+# Route for Google OAuth login
 @app.route('/login_with_google')
 def login_with_google():
+    """
+    Redirects the user to Google for OAuth login.
+    Returns:
+        Response: Redirect response to Google OAuth.
+    """
     redirect_uri = url_for('auth', _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
 
-
+# User login route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """
+    Handles user login with email and password.
+    Uses rate limiting to prevent brute-force attacks.
+    """
     if request.method == 'POST':
         email = bleach.clean(request.form['email'])
         password = bleach.clean(request.form['password'])
@@ -83,8 +109,6 @@ def login():
             conn = get_db_connection()
             user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             conn.close()
-
-
 
             if user is None:
                 error = 'User not found.'
@@ -104,6 +128,7 @@ def login():
                     return redirect(url_for('totp_setup'))
                 return redirect(url_for('verify_totp'))
             else:
+                # Increment rate-limiting attempt counters
                 if 'attempts' not in session:
                     session['attempts'] = 1
                     session['first_attempt_time'] = time.time()
@@ -111,6 +136,8 @@ def login():
                     session['attempts'] += 1
                     if session['attempts'] == RATE_LIMIT:
                         session['first_attempt_time'] = time.time()
+
+                # Display remaining attempts or timeout warning
                 if session['attempts'] >= RATE_LIMIT:
                     remaining_time = int(TIMEOUT_DURATION - (time.time() - session['first_attempt_time']))
                     flash(f"Too many failed attempts. Please try again after {remaining_time} seconds.")
@@ -121,9 +148,13 @@ def login():
             flash(error)
     return render_template('login.html')
 
-
+# User registration route
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    """
+    Handles user registration with email and password confirmation.
+    Verifies fields and checks for existing accounts.
+    """
     if request.method == 'POST':
         email = bleach.clean(request.form['email'])
         password = bleach.clean(request.form['password'])
@@ -162,15 +193,21 @@ def register():
                 conn.close()
     return render_template('register.html')
 
-
+# User logout route
 @app.route('/logout')
 def logout():
+    """
+    Logs out the user by clearing the session.
+    """
     session.clear()
     return redirect(url_for('index'))
 
-
+# TOTP setup route
 @app.route('/totp_setup', methods=['GET', 'POST'])
 def totp_setup():
+    """
+    Handles TOTP setup for the user. Verifies the TOTP code entered and saves the TOTP secret in the database.
+    """
     user_id = session.get('user_id')
     if user_id is None:
         return redirect(url_for('register'))
@@ -211,9 +248,12 @@ def totp_setup():
     conn.close()
     return render_template('totp_setup.html', totp_uri=totp_uri)
 
-
+# Authentication callback route for Google OAuth
 @app.route('/auth')
 def auth():
+    """
+    Handles the callback for Google OAuth authentication. Registers a new user if not already in the database.
+    """
     token = oauth.google.authorize_access_token()
     user_info = token['userinfo']
     session['user'] = user_info
@@ -252,9 +292,12 @@ def auth():
 
         return redirect(url_for('index'))
 
-
+# Verify TOTP route
 @app.route('/verify_totp', methods=['GET', 'POST'])
 def verify_totp():
+    """
+    Verifies the user's TOTP code before granting access. Required for users with TOTP setup.
+    """
     if request.method == 'POST':
         totp_code = bleach.clean(request.form['totp'])
         user_id = session.get('user_id')
@@ -279,21 +322,6 @@ def verify_totp():
             flash("User not found.")
 
     return render_template('verify_totp.html')
-
-
-@app.before_request
-def before_request():
-    user_id = session.get('user_id')
-    authenticated = session.get('authenticated')
-
-    # Load the user if they are logged in
-    if user_id and authenticated:
-        conn = get_db_connection()
-        g.user = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,)).fetchone()
-        conn.close()
-    else:
-        g.user = None
-
 
 @app.route('/create', methods=('GET', 'POST'))
 def create():
