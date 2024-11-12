@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block title %} TOTP Setup {% endblock %}
+
+{% block content %}
+    <h1>Two-Factor Authentication Setup</h1>
+    <p>Scan the QR code with your authenticator app:</p>
+    <img src="https://api.qrserver.com/v1/create-qr-code/?data={{ totp_uri }}" alt="TOTP QR Code">
+    <p>After scanning the QR code, enter the code from your authenticator app below to verify your TOTP setup:</p>
+    <form method="post">
+        <label for="totp">TOTP Code:</label>
+        <input type="text" id="totp" name="totp" required>
+        <button type="submit">Verify TFA</button>
+    </form>
+{% endblock %}
