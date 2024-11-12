@@ -1,18 +1,16 @@
-import sqlite3
-import bleach
-from werkzeug.security import generate_password_hash, check_password_hash
-import pyotp
-from flask import Flask, request, redirect, url_for, render_template, session, flash, g
-from datetime import timedelta
 import os
-from authlib.integrations.flask_client import OAuth
+import sqlite3
 import time
+
+import bleach
+import pyotp
+from authlib.integrations.flask_client import OAuth
+from flask import Flask, request, redirect, url_for, render_template, session, flash, g
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 app.config.from_object('config')
-
-
 
 CONF_URL = 'https://accounts.google.com/.well-known/openid-configuration'
 oauth = OAuth(app)
@@ -27,6 +25,7 @@ oauth.register(
 RATE_LIMIT = 3
 TIMEOUT_DURATION = 60
 
+
 def get_db_connection():
     conn = sqlite3.connect('database.db')
     conn.row_factory = sqlite3.Row
@@ -34,7 +33,7 @@ def get_db_connection():
 
 
 @app.before_request
-def rate_limit():
+def before_request():
     if request.endpoint == 'login' and request.method == 'POST':
         if 'attempts' in session and 'first_attempt_time' in session:
             attempts = session['attempts']
@@ -53,10 +52,20 @@ def rate_limit():
             session['attempts'] = 0
             session['first_attempt_time'] = time.time()
 
+    user_id = session.get('user_id')
+    if user_id is None:
+        g.user = None
+    else:
+        conn = get_db_connection()
+        g.user = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,)).fetchone()
+        conn.close()
+
+
 @app.route('/login_with_google')
 def login_with_google():
     redirect_uri = url_for('auth', _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -64,7 +73,6 @@ def login():
         email = bleach.clean(request.form['email'])
         password = bleach.clean(request.form['password'])
         error = None
-        client_ip = request.remote_addr
 
         if not email:
             error = 'Email is required.'
@@ -76,10 +84,7 @@ def login():
             user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             conn.close()
 
-            # Redirect if TOTP secret is missing
-            if user and not user['totp_secret']:
-                session['totp_uri'] = pyotp.TOTP(pyotp.random_base32()).provisioning_uri(email, issuer_name="FlaskBlog")
-                return redirect(url_for('totp_setup'))
+
 
             if user is None:
                 error = 'User not found.'
@@ -90,12 +95,14 @@ def login():
                 session.clear()
                 session['user_id'] = user['user_id']
                 flash("Login successful!")
-                if client_ip in failed_login_attempts:
-                    del failed_login_attempts[client_ip]
-                return redirect(url_for('verify_totp'))
                 session.pop('attempts', None)
                 session.pop('first_attempt_time', None)
-                return redirect(url_for('index'))
+                # Redirect if TOTP secret is missing
+                if user and not user['totp_secret']:
+                    session['totp_uri'] = pyotp.TOTP(pyotp.random_base32()).provisioning_uri(email,
+                                                                 issuer_name="FlaskBlog")
+                    return redirect(url_for('totp_setup'))
+                return redirect(url_for('verify_totp'))
             else:
                 if 'attempts' not in session:
                     session['attempts'] = 1
@@ -112,9 +119,6 @@ def login():
                     flash(f"{error}. You have {remaining_attempts} attempt(s) left.")
         else:
             flash(error)
-
-        return redirect(url_for('login'))
-
     return render_template('login.html')
 
 
@@ -157,17 +161,6 @@ def register():
             finally:
                 conn.close()
     return render_template('register.html')
-
-
-@app.before_request
-def load_logged_in_user():
-    user_id = session.get('user_id')
-    if user_id is None:
-        g.user = None
-    else:
-        conn = get_db_connection()
-        g.user = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,)).fetchone()
-        conn.close()
 
 
 @app.route('/logout')
@@ -246,7 +239,6 @@ def auth():
         session['user_id'] = user['user_id']
         conn.close()
 
-        flash("Please scan the QR code to enable two-factor authentication.")
         return render_template('totp_setup.html')
     else:
         if user['totp_secret']:
@@ -288,23 +280,11 @@ def verify_totp():
 
     return render_template('verify_totp.html')
 
+
 @app.before_request
 def before_request():
     user_id = session.get('user_id')
     authenticated = session.get('authenticated')
-    client_ip = request.remote_addr
-    current_time = time.time()
-
-    # Check rate limit
-    if client_ip in failed_login_attempts:
-        attempts, first_attempt_time = failed_login_attempts[client_ip]
-        if attempts >= RATE_LIMIT:
-            if current_time - first_attempt_time < TIMEOUT_DURATION:
-                flash('Too many failed login attempts. Please try again later.')
-                return render_template('login.html')
-            else:
-                # Reset attempts after the timeout duration
-                failed_login_attempts[client_ip] = (0, current_time)
 
     # Load the user if they are logged in
     if user_id and authenticated:
@@ -340,12 +320,14 @@ def create():
 
     return render_template('create_post.html')
 
+
 @app.route('/')
 def index():
     conn = get_db_connection()
     posts = conn.execute('SELECT * FROM posts').fetchall()
     conn.close()
     return render_template('index.html', posts=posts)
+
 
 if __name__ == "__main__":
     app.run(debug=True)
