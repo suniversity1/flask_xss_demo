@@ -23,18 +23,23 @@ def get_db_connection():
 
 @app.before_request
 def rate_limit():
-    client_ip = request.remote_addr
-    current_time = time.time()
+    if request.endpoint == 'login' and request.method == 'POST':
+        if 'attempts' in session and 'first_attempt_time' in session:
+            attempts = session['attempts']
+            first_attempt_time = session['first_attempt_time']
+            current_time = time.time()
 
-    if client_ip in failed_login_attempts:
-        attempts, first_attempt_time = failed_login_attempts[client_ip]
-        if attempts >= RATE_LIMIT:
-            if current_time - first_attempt_time < TIMEOUT_DURATION:
-                flash('Too many failed login attempts. Please try again later.')
-                return render_template('login.html')
-            else:
-                # Reset the attempts after the timeout duration
-                failed_login_attempts[client_ip] = (0, current_time)
+            if attempts >= RATE_LIMIT:
+                if current_time - first_attempt_time < TIMEOUT_DURATION:
+                    remaining_time = int(TIMEOUT_DURATION - (current_time - first_attempt_time))
+                    flash(f'Too many failed login attempts. Please try again after {remaining_time} seconds.')
+                    return render_template('login.html')
+                else:
+                    session['attempts'] = 0
+                    session['first_attempt_time'] = None
+        else:
+            session['attempts'] = 0
+            session['first_attempt_time'] = time.time()
 
 
 @app.route('/login', methods=['GET', 'POST'])
